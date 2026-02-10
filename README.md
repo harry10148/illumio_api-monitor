@@ -1,4 +1,4 @@
-# 🛡️ Illumio API Monitor (繁體中文版)
+# 🛡️ Illumio API Monitor
 
 ![Version](https://img.shields.io/badge/Version-v1.0.0-blue?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.6%2B-yellow?style=flat-square&logo=python&logoColor=white)
