@@ -7,7 +7,7 @@
 
 > ** Illumio PCE 監控方案 | 自動化告警 | 流量聚合分析**
 
-這是一個專為 **Illumio Core (PCE)** 設計的 Python 監控工具。它直接與 API 互動，即時偵測資安事件與異常流量阻擋，並透過智慧演算法提供具備 **原始日誌快照 (Raw Log Snapshot)** 的告警信件。  
+為 **Illumio Core (PCE)** 設計的 Python 監控工具。它直接與 API 互動，即時偵測資安事件與異常流量阻擋，並透過自定義規則發送告警信件。  
 
 <img width="532" height="511" alt="image" src="https://github.com/user-attachments/assets/02b63551-0aea-4e8f-b40b-5bca21cb6195" />  
 
