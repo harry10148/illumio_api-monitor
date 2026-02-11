@@ -228,21 +228,24 @@ sudo systemctl restart postfix
 sudo systemctl enable postfix  
 
 使用 Python 快速測試：  
-python3 -c  
-"import smtplib  
+python3 -c "  
+import smtplib  
 from email.message import EmailMessage  
-\#設定測試信內容  
+
+\# 設定測試信內容  
 msg = EmailMessage()  
 msg.set_content('This is a test from Python Relay.')  
 msg['Subject'] = 'Relay Test'  
 msg['From'] = 'test@lab.local'  
-msg['To'] = '您的真實信箱@gmail.com'  # <--- 請修改這裡  
+msg['To'] = '您的真實信箱@gmail.com'  \# <--- 請修改這裡  
+  
 try:  
-    \#連線到本機 Port 25  
+    \# 連線到本機 Port 25  
     with smtplib.SMTP('127.0.0.1', 25) as s:  
         s.ehlo()  
-        \#本機轉發通常不需再驗證，直接寄送  
+        \# 本機轉發通常不需再驗證，直接寄送  
         s.send_message(msg)  
         print('SUCCESS: Email sent to Postfix queue.')  
-except Exception as e:print(f'FAILED: {e}')  
+except Exception as e:  
+    print(f'FAILED: {e}')  
 "
