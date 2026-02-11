@@ -81,7 +81,7 @@ sudo apt update sudo apt install python3 python3-requests -y
 ### 2. 下載程式
 將 `illumio_monitor.py` 下載至伺服器並賦予執行權限：
 
-chmod +x illumio_monitor.py
+chmod +x illumio_api_monitor.py
 
 
 ---
@@ -90,7 +90,7 @@ chmod +x illumio_monitor.py
 
 執行程式進入互動選單：
 
-./illumio_monitor.py
+python3 illumio_api_monitor.py
 
 
 ### 步驟 1：系統初始設定
@@ -122,7 +122,7 @@ crontab -e
 加入以下指令 (假設程式位於 `/root`，每 10 分鐘執行一次)：
 
 Illumio Monitor Cron Job
-*/10 * * * * echo "7" | /root/illumio_monitor.py >> /var/log/illumio_monitor.log 2>&1
+*/10 * * * * echo "7" | /root/illumio_api_monitor.py >> /var/log/illumio_monitor.log 2>&1
 
 
 > 💡 **小技巧**：程式設計為互動式選單，但在 Cron 中透過 `echo "7" | ...` 管道輸入，可模擬按下 "7" (Run Monitor Now) 鍵，執行完畢後自動退出。
