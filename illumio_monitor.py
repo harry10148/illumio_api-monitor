@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Illumio API Monitor (繁體中文版)
-功能：透過 API 監控 Illumio PCE 的事件與流量，並在偵測到異常時發送告警郵件。
-特點：支援流量聚合分析 (Top Talkers)、速率限制 (Rate Limiting)、狀態壓縮，且無須安裝額外代理程式。
-"""
-
 import sys
 import os
 import json
