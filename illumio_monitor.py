@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+Illumio API Monitor (繁體中文版)
+功能：透過 API 監控 Illumio PCE 的事件、流量與服務健康狀態，並在偵測到異常時發送告警郵件。
+特點：支援 PCE Health Check、流量聚合分析 (Top Talkers)、速率限制、狀態壓縮。
+"""
+
 import sys
 import os
 import json
@@ -117,25 +123,17 @@ EVENT_TEMPLATES = {
 
 # ================= 輸入輔助函式 =================
 def safe_input(prompt, value_type=str, valid_range=None, allow_cancel=True):
-    """
-    處理使用者輸入，支援取消操作與型別檢查
-    """
     while True:
         try:
             raw = input(prompt)
-            
-            # 處理空白輸入 (視為取消或跳過)
             if not raw.strip():
                 if allow_cancel: return None
                 else: continue
             
-            # 處理明確取消指令 (-1)
             if raw.strip() == '-1' and allow_cancel:
                 return None
 
             val = value_type(raw)
-            
-            # 檢查數值範圍
             if valid_range and val not in valid_range:
                 print(f"{Colors.FAIL}輸入數值超出範圍 ({min(valid_range)}-{max(valid_range)})。{Colors.ENDC}")
                 continue
@@ -257,8 +255,8 @@ class ConfigManager:
                     t_win = 10 
                 self.add_event_rule(evt['name'], evt['etype'], evt['desc'], evt['rec'], t_type, t_count, t_win)
         
-        self.add_traffic_rule("大量被阻擋流量 (High Volume)", pd_val=2, port=None, threshold_type="count", threshold_count=10, threshold_window=10)
-        self.add_traffic_rule("潛在阻擋流量 (Potentially Blocked)", pd_val=1, port=None, threshold_type="count", threshold_count=10, threshold_window=10)
+        self.add_traffic_rule("大量被阻擋流量", pd_val=2, port=None, threshold_type="count", threshold_count=10, threshold_window=10)
+        self.add_traffic_rule("潛在阻擋流量", pd_val=1, port=None, threshold_type="count", threshold_count=10, threshold_window=10)
         print(f"{Colors.GREEN}最佳實踐規則載入完成。{Colors.ENDC}")
 
 # ================= 監控引擎 =================
@@ -269,13 +267,13 @@ class ApiMonitorEngine:
         self.base_url = f"{self.api_cfg['url']}/api/v2/orgs/{self.api_cfg['org_id']}"
         self.auth = HTTPBasicAuth(self.api_cfg['key'], self.api_cfg['secret'])
         
+        self.health_alerts = []  # 儲存健康檢查異常
         self.event_alerts = []
         self.traffic_alerts = []
         
         self.event_logger = setup_logger('illumio_events', EVENT_LOG_FILE)
         self.traffic_logger = setup_logger('illumio_traffic', TRAFFIC_LOG_FILE)
         
-        # 使用時區感知的 UTC 時間以確保跨平台相容性 (Ubuntu/RHEL)
         self.last_check = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         self.state = {"last_check": self.last_check, "history": {}}
         
@@ -287,7 +285,6 @@ class ApiMonitorEngine:
             except: pass
 
     def save_state(self):
-        # 更新最後檢查時間
         self.state["last_check"] = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         now = datetime.datetime.now(datetime.timezone.utc)
         cutoff = now - datetime.timedelta(minutes=120)
@@ -297,20 +294,16 @@ class ApiMonitorEngine:
             valid_records = []
             for rec in records:
                 try:
-                    # 相容舊版狀態格式
                     if isinstance(rec, str): ts, c = rec, 1
                     else: ts, c = rec.get('t'), rec.get('c', 1)
-                    
                     try:
                         t_obj = datetime.datetime.strptime(ts, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc)
                     except ValueError:
                         t_obj = datetime.datetime.strptime(ts, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc)
-
                     if t_obj > cutoff:
                         valid_records.append({"t": ts, "c": c})
                 except: pass
             
-            # 狀態壓縮：合併相同時間戳記的紀錄
             merged_map = {}
             for r in valid_records:
                 merged_map[r['t']] = merged_map.get(r['t'], 0) + r['c']
@@ -322,6 +315,29 @@ class ApiMonitorEngine:
         self.state["history"] = cleaned_history
         with open(STATE_FILE, 'w') as f:
             json.dump(self.state, f)
+
+    def check_pce_health(self):
+        # 根據文件，health check endpoint 是 /api/v2/health
+        url = f"{self.api_cfg['url']}/api/v2/health"
+        print(f"正在檢查 PCE 服務健康狀態 ({url})...")
+        try:
+            r = requests.get(url, auth=self.auth, verify=self.api_cfg['verify_ssl'], timeout=10)
+            if r.status_code != 200:
+                self.health_alerts.append({
+                    "time": datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
+                    "status": f"{r.status_code} {r.reason}",
+                    "details": r.text[:300] # 只取前回傳內容避免過長
+                })
+                print(f"{Colors.FAIL}PCE 服務異常！狀態碼: {r.status_code}{Colors.ENDC}")
+            else:
+                print(f"{Colors.GREEN}PCE 服務運作正常 (Status: 200 OK){Colors.ENDC}")
+        except Exception as e:
+            self.health_alerts.append({
+                "time": datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
+                "status": "Connection Failed",
+                "details": str(e)
+            })
+            print(f"{Colors.FAIL}PCE 連線失敗: {e}{Colors.ENDC}")
 
     def fetch_events(self, time_filter=None, limit=1000):
         url = f"{self.base_url}/events"
@@ -354,7 +370,6 @@ class ApiMonitorEngine:
 
     def fetch_traffic_async(self):
         query_url = f"{self.base_url}/traffic_flows/async_queries"
-        
         now = datetime.datetime.now(datetime.timezone.utc)
         end_time = (now - datetime.timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%SZ')
         start_time = (now - datetime.timedelta(minutes=15)).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -388,7 +403,7 @@ class ApiMonitorEngine:
                     print(" 完成。")
                     break
                 if state == "failed":
-                    print(f" 計算失敗。")
+                    print(f" Job Failed.")
                     return []
                 print(".", end="", flush=True)
             else:
@@ -410,18 +425,6 @@ class ApiMonitorEngine:
         if events:
             type_str = "流量 (Traffic)" if is_traffic else "系統 (System)"
             print(f"已記錄 {len(events)} 筆 {type_str} 資料至本地日誌。")
-
-    def dump_raw_events(self):
-        events = self.fetch_events(limit=5)
-        print(f"\n{Colors.CYAN}=== DEBUG: 原始 API 回傳 (最近 5 筆事件) ==={Colors.ENDC}")
-        if not events: print("找不到最近的事件。")
-        for e in events:
-            print("-" * 40)
-            print(f"類型: {e.get('event_type')}")
-            print(f"時間: {e.get('timestamp')}")
-            if 'notifications' in e:
-                print(f"細節: {json.dumps(e.get('notifications', [])[:1])}")
-        print("-" * 40)
 
     def get_traffic_details(self, flow):
         src_ip = flow.get('src', {}).get('ip', 'N/A')
@@ -448,6 +451,10 @@ class ApiMonitorEngine:
         except: return False
 
     def analyze(self):
+        # 1. 先執行健康檢查
+        self.check_pce_health()
+
+        # 2. 執行常規分析
         events = self.fetch_events()
         if events: self.log_audit_data(events, is_traffic=False)
 
@@ -497,7 +504,7 @@ class ApiMonitorEngine:
                             if not self.check_flow_labels(f.get('dst', {}), dst_filter): is_match = False
                         if is_match: matches.append(f)
 
-            # 速率限制邏輯
+            # 速率限制與紀錄
             current_count = len(matches)
             rid = str(rule["id"])
             if rid not in self.state["history"]: self.state["history"][rid] = []
@@ -527,7 +534,6 @@ class ApiMonitorEngine:
                 # 擷取原始日誌 (Snapshot)
                 raw_snapshot = json.dumps(matches[:2], indent=2, default=str) if matches else "No raw data."
 
-                # 流量聚合分析 (Top Talkers)
                 if rule["type"] == "traffic":
                     talkers = Counter()
                     for m in matches:
@@ -566,24 +572,57 @@ class ApiMonitorEngine:
         self.save_state()
 
     def send_email(self, force_test=False):
-        if not self.event_alerts and not self.traffic_alerts and not force_test: return
+        # 只要有任何一種告警 (健康/事件/流量) 就發信
+        if not self.health_alerts and not self.event_alerts and not self.traffic_alerts and not force_test: return
         
         cfg = self.cm.config["email"]
         if not cfg["recipients"]: 
             print("未設定收件者。")
             return
 
-        total_issues = len(self.event_alerts) + len(self.traffic_alerts)
-        subject = f"[Illumio 監控告警] 偵測到 {total_issues} 個異常"
+        total_issues = len(self.health_alerts) + len(self.event_alerts) + len(self.traffic_alerts)
+        
+        # 主旨判斷：若有健康異常，優先顯示
+        if self.health_alerts:
+            subject = f"[CRITICAL] Illumio PCE 服務異常 ({len(self.health_alerts)} Errors)"
+        else:
+            subject = f"[Illumio 監控告警] 偵測到 {total_issues} 個異常"
+            
         if force_test: subject = "[Illumio 監控系統] 測試郵件"
 
+        # === 1. Health Alert HTML ===
+        health_html = ""
+        if self.health_alerts:
+            rows = ""
+            for a in self.health_alerts:
+                rows += f"""
+                <tr>
+                    <td style="padding:10px; border-bottom:1px solid #eee; font-weight:bold;">{a['time']}</td>
+                    <td style="padding:10px; border-bottom:1px solid #eee; color:#dc3545; font-weight:bold;">{a['status']}</td>
+                    <td style="padding:10px; border-bottom:1px solid #eee; font-family:monospace; font-size:12px;">{a['details']}</td>
+                </tr>
+                """
+            health_html = f"""
+            <h3 style="background:#dc3545; color:white; padding:10px; margin-top:20px;">🚨 PCE 服務健康狀態異常 (Service Health Alert)</h3>
+            <div style="padding:10px; background:#fff3f3; border:1px solid #dc3545; color:#dc3545; margin-bottom:15px;">
+                <strong>警告：</strong> 無法連線至 PCE API ({self.api_cfg['url']})，請立即檢查系統狀態。
+            </div>
+            <table style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif;">
+                <tr style="background:#f7f7f7;">
+                    <th style="text-align:left; padding:8px;">時間 (UTC)</th>
+                    <th style="text-align:left; padding:8px;">狀態 (Status)</th>
+                    <th style="text-align:left; padding:8px;">錯誤詳情 (Details)</th>
+                </tr>
+                {rows}
+            </table>
+            """
+
+        # === 2. Event Alert HTML ===
         event_html = ""
         if self.event_alerts:
             rows = ""
             for a in self.event_alerts:
                 sev_color = "#dc3545" if a['severity'] == 'error' else "#ffc107"
-                
-                # 原始日誌區塊
                 raw_block = f"""
                 <tr>
                     <td colspan="5" style="padding:10px; background:#f8f9fa; border-bottom:1px solid #eee;">
@@ -592,7 +631,6 @@ class ApiMonitorEngine:
                     </td>
                 </tr>
                 """
-                
                 rows += f"""
                 <tr>
                     <td style="padding:8px; border-bottom:1px solid #eee;">{a['time']}</td>
@@ -608,7 +646,7 @@ class ApiMonitorEngine:
                 {raw_block}
                 """
             event_html = f"""
-            <h3 style="background:#d9534f; color:white; padding:10px; margin-top:20px;">安全性與系統事件 (Security Events)</h3>
+            <h3 style="background:#f0ad4e; color:white; padding:10px; margin-top:20px;">安全性與系統事件 (Security Events)</h3>
             <table style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif;">
                 <tr style="background:#f7f7f7;">
                     <th style="text-align:left; padding:8px;">時間</th>
@@ -621,12 +659,11 @@ class ApiMonitorEngine:
             </table>
             """
 
+        # === 3. Traffic Alert HTML ===
         traffic_html = ""
         if self.traffic_alerts:
             rows = ""
             for a in self.traffic_alerts:
-                
-                # 原始日誌區塊
                 raw_block = f"""
                 <tr>
                     <td colspan="4" style="padding:10px; background:#f8f9fa; border-bottom:1px solid #eee;">
@@ -635,7 +672,6 @@ class ApiMonitorEngine:
                     </td>
                 </tr>
                 """
-                
                 rows += f"""
                 <tr>
                     <td style="padding:8px; border-bottom:1px solid #eee; font-weight:bold; color:#d9534f;">{a['count']}</td>
@@ -648,7 +684,7 @@ class ApiMonitorEngine:
                 {raw_block}
                 """
             traffic_html = f"""
-            <h3 style="background:#f0ad4e; color:white; padding:10px; margin-top:20px;">流量異常 (Traffic Anomalies)</h3>
+            <h3 style="background:#17a2b8; color:white; padding:10px; margin-top:20px;">流量異常 (Traffic Anomalies)</h3>
             <table style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif;">
                 <tr style="background:#f7f7f7;">
                     <th style="text-align:left; padding:8px;">累積次數</th>
@@ -664,10 +700,11 @@ class ApiMonitorEngine:
         <html>
         <body style="font-family: Arial, sans-serif; color:#333;">
             <div style="max-width:900px; margin:auto; border:1px solid #ddd; padding:20px;">
-                <h2 style="color:#f66a0a; text-align:center;">Illumio API 監控報告</h2>
+                <h2 style="color:#2c3e50; text-align:center;">Illumio API 監控報告</h2>
                 <div style="text-align:center; color:#777; font-size:12px; margin-bottom:20px;">
                     Org ID: {self.cm.config['api']['org_id']} | 產生時間: {datetime.datetime.now(datetime.timezone.utc).isoformat()}
                 </div>
+                {health_html}
                 {event_html}
                 {traffic_html}
                 <div style="margin-top:30px; font-size:11px; color:#999; text-align:center; border-top:1px solid #eee; padding-top:10px;">
@@ -691,18 +728,15 @@ class ApiMonitorEngine:
         except Exception as e:
             print(f"{Colors.FAIL}郵件發送失敗: {e}{Colors.ENDC}")
 
-# ================= UI 邏輯 =================
+# ================= UI Logic =================
 def settings_menu(cm):
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
         print(f"{Colors.HEADER}=== 系統設定 ==={Colors.ENDC}")
         print(f"API URL: {cm.config['api']['url']}")
         print(f"寄件人: {Colors.CYAN}{cm.config['email']['sender']}{Colors.ENDC}")
-        
-        # 顯示收件人列表
         rcpt_str = ", ".join(cm.config['email']['recipients'])
         print(f"收件人: {Colors.CYAN}{rcpt_str}{Colors.ENDC}")
-        
         ssl_state = f"{Colors.GREEN}True{Colors.ENDC}" if cm.config['api']['verify_ssl'] else f"{Colors.FAIL}False (不安全){Colors.ENDC}"
         print(f"SSL 驗證: {ssl_state}")
         print("-" * 30)
@@ -713,8 +747,6 @@ def settings_menu(cm):
         
         sel = safe_input("\n請選擇功能: ", int, range(0, 4))
         if sel is None: continue
-        
-        # 修正：確保輸入 0 能正確跳出迴圈
         if sel == 0: break
         
         if sel == 1:
@@ -726,7 +758,6 @@ def settings_menu(cm):
         elif sel == 2:
             val = safe_input(f"新寄件人信箱 (目前: {cm.config['email']['sender']}): ")
             if val: cm.config['email']['sender'] = val
-            
             rcpt_raw = safe_input("收件人 (多組請用逗號分隔): ")
             if rcpt_raw:
                 cm.config['email']['recipients'] = [x.strip() for x in rcpt_raw.split(',') if x.strip()]
@@ -739,7 +770,6 @@ def settings_menu(cm):
 
 def main_menu():
     cm = ConfigManager()
-    
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
         print(f"{Colors.HEADER}=== Illumio API 監控系統 ==={Colors.ENDC}")
@@ -867,7 +897,7 @@ def main_menu():
             if not cm.config['api']['key']: print("錯誤: 尚未設定 API Key！"); input(); continue
             eng = ApiMonitorEngine(cm)
             eng.analyze()
-            if eng.event_alerts or eng.traffic_alerts:
+            if eng.health_alerts or eng.event_alerts or eng.traffic_alerts:
                 print(f"{Colors.FAIL}偵測到異常！告警信件已發送。{Colors.ENDC}")
                 eng.send_email()
             else:
