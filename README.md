@@ -3,16 +3,15 @@
 
 <img width="532" height="511" alt="image" src="https://github.com/user-attachments/assets/02b63551-0aea-4e8f-b40b-5bca21cb6195" />
 
-<img width="1380" height="739" alt="image" src="https://github.com/user-attachments/assets/52bd608e-72e6-4c49-890b-5f6a419a26e7" />
 
-# 🛡️ Illumio API Monitor (繁體中文版)
+# 🛡️ Illumio API Monitor
 
 ![Version](https://img.shields.io/badge/Version-v1.0.0-blue?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.6%2B-yellow?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-RHEL%20%7C%20Ubuntu-orange?style=flat-square&logo=linux&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
-> **企業級 Illumio PCE 輕量化監控方案 | 無 Agent | 自動化告警 | 流量聚合分析**
+> ** Illumio PCE 監控方案 | 無 Agent | 自動告警 | 流量聚合分析**
 
 這是一個專為 **Illumio Core (PCE)** 設計的 Python 監控工具。它直接與 API 互動，即時偵測資安事件與異常流量阻擋，並透過智慧演算法提供具備 **原始日誌快照 (Raw Log Snapshot)** 的告警信件。
 
@@ -163,19 +162,13 @@ crontab -e
 ## ❓ 常見問題 (FAQ)
 
 <details>
-<summary><strong>Q1: 為什麼在 Ubuntu 上執行沒有出現 datetime 警告了？</strong></summary>
-<br>
-本版本已針對 Python 3.12+ 進行核心重構，全面改用 <code>datetime.now(datetime.timezone.utc)</code>，確保在最新的 Ubuntu 24.04 與 RHEL 9 上皆能完美運行且無 Deprecation Warning。
-</details>
-
-<details>
-<summary><strong>Q2: 設定檔儲存在哪裡？</strong></summary>
+<summary><strong>Q1: 設定檔儲存在哪裡？</strong></summary>
 <br>
 所有的設定 (API Key, 規則) 都儲存在同目錄下的 <code>illumio_api_config.json</code>。若需遷移至新主機，只需複製此檔案即可。
 </details>
 
 <details>
-<summary><strong>Q3: 什麼是 "Raw Log Snapshot"?</strong></summary>
+<summary><strong>Q2: 什麼是 "Raw Log Snapshot"?</strong></summary>
 <br>
 為了方便除錯，當告警觸發時，系統會自動擷取該批次的前 2 筆原始日誌 (JSON) 附在 Email 中。您無需登入 Console 就能看到詳細的 <code>Port</code>, <code>Protocol</code> 與 <code>Labels</code>。
 </details>
@@ -267,28 +260,23 @@ sudo vi /etc/postfix/master.cf
 **請比對並修改為以下內容：**
 
 ```text
+==========================================================================
+service  type  private  unpriv  chroot  wakeup  maxproc  command  + args
+==========================================================================
 # 1) 負責監聽 Port 25 的服務 (inet) -> chroot 改為 n
-smtp      inet  n       -       n       -       -       smtpd
+smtp     inet    n       -       n       -       -       smtpd
 
 # 2) 負責對外寄信的服務 (unix) -> chroot 改為 n (影響 SASL 讀取)
-smtp      unix  -       -       n       -       -       smtp
+smtp     unix    -       -       n       -       -       smtp
 
 # 3) (選用) 負責轉發的服務 -> chroot 改為 n
-relay     unix  -       -       n       -       -       smtp
+relay    unix    -       -       n       -       -       smtp
 
 # 4) 確認 postscreen 被註解掉 (前面加 #)
-#smtp      inet  n       -       n       -       1       postscreen
-#smtpd     pass  -       -       n       -       -       smtpd
+#smtp    inet    n       -       n       -       1       postscreen
+#smtpd   pass    -       -       n       -       -       smtpd
 ```
 
-> 如果你想保留「欄位說明表」，建議也包在 code block，避免 Markdown 跑版：
->
-> ```text
-> ==========================================================================
-> service type  private unpriv  chroot  wakeup  maxproc command + args
-> (yes)   (yes)   (no)    (never) (100)
-> ==========================================================================
-> ```
 
 ### 5. 啟動與驗證
 
